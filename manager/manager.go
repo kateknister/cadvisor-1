@@ -138,10 +138,12 @@ type manager struct {
 	dockerContainersRegexp *regexp.Regexp
 	loadReader             cpuload.CpuLoadReader
 	eventHandler           events.EventManager
+	startupTime            time.Time
 }
 
 // Start the container manager.
 func (self *manager) Start() error {
+	self.startupTime = time.Now()
 	// TODO(rjnagal): Skip creating cpu load reader while we improve resource usage and accuracy.
 	if false {
 		// Create cpu load reader.
@@ -475,9 +477,31 @@ func (m *manager) createContainer(containerName string) error {
 	}
 	glog.Infof("Added container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
 
+	contSpecs, err := cont.handler.GetSpec()
+	if err != nil {
+		return err
+	}
+
+	if contSpecs.CreationTime.After(m.startupTime) {
+		contRef, err := cont.handler.ContainerReference()
+		if err != nil {
+			return err
+		}
+
+		newEvent := &events.Event{
+			ContainerName: contRef.Name,
+			EventData:     cont,
+			Timestamp:     contSpecs.CreationTime,
+			EventType:     events.TypeContainerCreation,
+		}
+		err = m.eventHandler.AddEvent(newEvent)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Start the container's housekeeping.
 	cont.Start()
-
 	return nil
 }
 
@@ -509,6 +533,22 @@ func (m *manager) destroyContainer(containerName string) error {
 		})
 	}
 	glog.Infof("Destroyed container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
+
+	contRef, err := cont.handler.ContainerReference()
+	if err != nil {
+		return err
+	}
+
+	newEvent := &events.Event{
+		ContainerName: contRef.Name,
+		EventData:     cont,
+		Timestamp:     time.Now(),
+		EventType:     events.TypeContainerDeletion,
+	}
+	err = m.eventHandler.AddEvent(newEvent)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
