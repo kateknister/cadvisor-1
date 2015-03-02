@@ -482,7 +482,7 @@ func (m *manager) createContainer(containerName string) error {
 		return err
 	}
 
-	if contSpecs.CreationTime.After(m.startupTime) {
+	if contSpecs.CreationTime.Before(m.startupTime) {
 		contRef, err := cont.handler.ContainerReference()
 		if err != nil {
 			return err
@@ -490,7 +490,7 @@ func (m *manager) createContainer(containerName string) error {
 
 		newEvent := &events.Event{
 			ContainerName: contRef.Name,
-			EventData:     cont,
+			EventData:     contSpecs,
 			Timestamp:     contSpecs.CreationTime,
 			EventType:     events.TypeContainerCreation,
 		}
@@ -518,6 +518,8 @@ func (m *manager) destroyContainer(containerName string) error {
 		return nil
 	}
 
+
+
 	// Tell the container to stop.
 	err := cont.Stop()
 	if err != nil {
@@ -539,9 +541,14 @@ func (m *manager) destroyContainer(containerName string) error {
 		return err
 	}
 
+	contSpecs, err := cont.handler.GetSpec()
+	if err != nil {
+		return err
+	}
+
 	newEvent := &events.Event{
 		ContainerName: contRef.Name,
-		EventData:     cont,
+		EventData:     contSpecs,
 		Timestamp:     time.Now(),
 		EventType:     events.TypeContainerDeletion,
 	}
