@@ -98,7 +98,7 @@ func New(memoryStorage *memory.InMemoryStorage, sysfs sysfs.SysFs) (Manager, err
 		quitChannels:      make([]chan error, 0, 2),
 		memoryStorage:     memoryStorage,
 		cadvisorContainer: selfContainer,
-		startupTime:       time.Now(),
+		startupTime:	   time.Now(),
 	}
 	machineInfo, err := getMachineInfo(sysfs)
 	if err != nil {
@@ -530,13 +530,8 @@ func (m *manager) destroyContainer(containerName string) error {
 		return nil
 	}
 
-	contSpecs, err := cont.handler.GetSpec()
-	if err != nil {
-		return err
-	}
-
 	// Tell the container to stop.
-	err = cont.Stop()
+	err := cont.Stop()
 	if err != nil {
 		return err
 	}
@@ -558,7 +553,6 @@ func (m *manager) destroyContainer(containerName string) error {
 
 	newEvent := &events.Event{
 		ContainerName: contRef.Name,
-		EventData:     contSpecs,
 		Timestamp:     time.Now(),
 		EventType:     events.TypeContainerDeletion,
 	}

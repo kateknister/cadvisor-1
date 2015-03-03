@@ -24,10 +24,12 @@ import (
 
 	"github.com/google/cadvisor/container"
 	"github.com/google/cadvisor/container/docker"
+	"github.com/google/cadvisor/events"
 	"github.com/google/cadvisor/info"
 	itest "github.com/google/cadvisor/info/test"
 	"github.com/google/cadvisor/storage/memory"
 	"github.com/google/cadvisor/utils/sysfs/fakesysfs"
+	"github.com/stretchr/testify/assert"
 )
 
 // TODO(vmarmol): Refactor these tests.
@@ -150,6 +152,37 @@ func TestGetContainerInfo(t *testing.T) {
 
 }
 
+func TestDestroyContainersEventHandling(t *testing.T) {
+	containers := []string{
+		"/c1",
+		"/c2",
+	}
+
+	query := &info.ContainerInfoRequest{
+		NumStats: 256,
+	}
+
+	m, _, _ := expectManagerWithContainers(containers, query, t)
+
+	request := events.NewRequest()
+	request.EventType[events.TypeContainerDeletion] = true
+
+	err := m.destroyContainer("/c2")
+	assert.Nil(t, err)
+	eventsFound, err := m.eventHandler.GetEvents(request)
+	assert.Nil(t, err)
+
+	if eventsFound.Len() != 1 {
+		t.Fatalf("expected 1 destroyed container but found %v", eventsFound.Len())
+	}
+	if eventsFound[0].ContainerName != "/c2" {
+		t.Errorf("expected container name %v but got %v", "/c2", eventsFound[0].ContainerName)
+	}
+	if eventsFound[0].EventType != events.TypeContainerDeletion {
+		t.Errorf("expected TypeContainerDeletion type but got %v", eventsFound[0].EventType)
+	}
+}
+
 func TestSubcontainersInfo(t *testing.T) {
 	containers := []string{
 		"/c1",
@@ -160,27 +193,27 @@ func TestSubcontainersInfo(t *testing.T) {
 		NumStats: 64,
 	}
 
-	m, _, _ := expectManagerWithContainers(containers, query, t)
+	m, infosMap, handlerMap := expectManagerWithContainers(containers, query, t)
 
-	result, err := m.SubcontainersInfo("/", query)
-	if err != nil {
-		t.Fatalf("expected to succeed: %s", err)
-	}
-	if len(result) != len(containers) {
-		t.Errorf("expected to received containers: %v, but received: %v", containers, result)
-	}
-	for _, res := range result {
-		found := false
-		for _, name := range containers {
-			if res.Name == name {
-				found = true
-				break
-			}
+	returnedInfos := make(map[string]*info.ContainerInfo, len(containers))
+
+	for _, container := range containers {
+		cinfo, err := m.GetContainerInfo(container, query)
+		if err != nil {
+			t.Fatalf("Unable to get info for container %v: %v", container, err)
 		}
-		if !found {
-			t.Errorf("unexpected container %q in result, expected one of %v", res.Name, containers)
+		returnedInfos[container] = cinfo
+	}
+
+	for container, handler := range handlerMap {
+		handler.AssertExpectations(t)
+		returned := returnedInfos[container]
+		expected := infosMap[container]
+		if !reflect.DeepEqual(returned, expected) {
+			t.Errorf("returned unexpected info for container %v; returned %+v; expected %+v", container, returned, expected)
 		}
 	}
+
 }
 
 func TestDockerContainersInfo(t *testing.T) {
