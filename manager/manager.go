@@ -98,8 +98,8 @@ func New(memoryStorage *memory.InMemoryStorage, sysfs sysfs.SysFs) (Manager, err
 		quitChannels:      make([]chan error, 0, 2),
 		memoryStorage:     memoryStorage,
 		cadvisorContainer: selfContainer,
+		startupTime:       time.Now(),
 	}
-
 	machineInfo, err := getMachineInfo(sysfs)
 	if err != nil {
 		return nil, err
@@ -151,6 +151,7 @@ type manager struct {
 	dockerContainersRegexp *regexp.Regexp
 	loadReader             cpuload.CpuLoadReader
 	eventHandler           events.EventManager
+	startupTime            time.Time
 }
 
 // Start the container manager.
@@ -488,9 +489,31 @@ func (m *manager) createContainer(containerName string) error {
 	}
 	glog.Infof("Added container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
 
+	contSpecs, err := cont.handler.GetSpec()
+	if err != nil {
+		return err
+	}
+
+	if contSpecs.CreationTime.After(m.startupTime) {
+		contRef, err := cont.handler.ContainerReference()
+		if err != nil {
+			return err
+		}
+
+		newEvent := &events.Event{
+			ContainerName: contRef.Name,
+			EventData:     contSpecs,
+			Timestamp:     contSpecs.CreationTime,
+			EventType:     events.TypeContainerCreation,
+		}
+		err = m.eventHandler.AddEvent(newEvent)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Start the container's housekeeping.
 	cont.Start()
-
 	return nil
 }
 
@@ -507,8 +530,13 @@ func (m *manager) destroyContainer(containerName string) error {
 		return nil
 	}
 
+	contSpecs, err := cont.handler.GetSpec()
+	if err != nil {
+		return err
+	}
+
 	// Tell the container to stop.
-	err := cont.Stop()
+	err = cont.Stop()
 	if err != nil {
 		return err
 	}
@@ -522,6 +550,22 @@ func (m *manager) destroyContainer(containerName string) error {
 		})
 	}
 	glog.Infof("Destroyed container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
+
+	contRef, err := cont.handler.ContainerReference()
+	if err != nil {
+		return err
+	}
+
+	newEvent := &events.Event{
+		ContainerName: contRef.Name,
+		EventData:     contSpecs,
+		Timestamp:     time.Now(),
+		EventType:     events.TypeContainerDeletion,
+	}
+	err = m.eventHandler.AddEvent(newEvent)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
