@@ -194,6 +194,7 @@ func (self *manager) Start() error {
 		return err
 	}
 	self.quitChannels = append(self.quitChannels, quitWatcher)
+	glog.Infof("In manager, started watching for new ooms")
 	err = self.watchForNewOoms()
 	if err != nil {
 		glog.Errorf("Failed to start OOM watcher, will not get OOM events: %v", err)
@@ -695,6 +696,7 @@ func (self *manager) watchForNewContainers(quit chan error) error {
 }
 
 func (self *manager) watchForNewOoms() error {
+	glog.Infof("Started watching for new ooms in manager")
 	outStream := make(chan *oomparser.OomInstance, 10)
 	oomLog, err := oomparser.New()
 	if err != nil {
@@ -705,6 +707,7 @@ func (self *manager) watchForNewOoms() error {
 		return err
 	}
 	go func() {
+		glog.Infof("In the go func in manager's watchForNewOoms")
 		for oomInstance := range outStream {
 			newEvent := &events.Event{
 				ContainerName: oomInstance.ContainerName,
@@ -714,6 +717,7 @@ func (self *manager) watchForNewOoms() error {
 			}
 			glog.V(1).Infof("Created an oom event: %v", newEvent)
 			err := self.eventHandler.AddEvent(newEvent)
+			glog.Infof("Added an event to the manager's event handler: %v", newEvent)
 			if err != nil {
 				glog.Errorf("Failed to add event %v, got error: %v", newEvent, err)
 			}

@@ -34,6 +34,8 @@ var lastLineRegexp *regexp.Regexp = regexp.MustCompile(
 	`(^[A-Z]{1}[a-z]{2} .*[0-9]{1,2} [0-9]{1,2}:[0-9]{2}:[0-9]{2}) .* Killed process ([0-9]+) \(([0-9A-Za-z_]+)\)`)
 var firstLineRegexp *regexp.Regexp = regexp.MustCompile(
 	`invoked oom-killer:`)
+var timeRegexp *regexp.Regexp = regexp.MustCompile(
+	`(^[A-Z]{1}[a-z]{2} .*[0-9]{1,2} [0-9]{1,2}:[0-9]{2}:[0-9]{2}) .*`)
 
 // struct to hold file from which we obtain OomInstances
 type OomParser struct {
@@ -66,26 +68,44 @@ func getContainerName(line string, currentOomInstance *OomInstance) error {
 // gets the pid, name, and date from a line and adds it to oomInstance
 func getProcessNamePid(line string, currentOomInstance *OomInstance) (bool, error) {
 	reList := lastLineRegexp.FindStringSubmatch(line)
+
 	if reList == nil {
 		return false, nil
 	}
+	glog.Infof("in getProcessNamePid the reList is \n%v", reList)
 	const longForm = "Jan _2 15:04:05 2006"
 	stringYear := strconv.Itoa(time.Now().Year())
-	linetime, err := time.Parse(longForm, reList[1]+" "+stringYear)
+	linetime, err := time.ParseInLocation(longForm, reList[1]+" "+stringYear, time.Local)
 	if err != nil {
 		return false, err
 	}
+
 	currentOomInstance.TimeOfDeath = linetime
-	if err != nil {
-		return false, err
-	}
 	pid, err := strconv.Atoi(reList[2])
 	if err != nil {
 		return false, err
 	}
+	glog.Infof("in getProcessNamePid found pid %v from reList[2]: %v", pid, reList[2])
 	currentOomInstance.Pid = pid
 	currentOomInstance.ProcessName = reList[3]
 	return true, nil
+}
+
+func isLineTimeClose(line string) bool {
+	reList := timeRegexp.FindStringSubmatch(line)
+
+	if reList == nil {
+		return true
+	}
+	const longForm = "Jan _2 15:04:05 2006"
+	stringYear := strconv.Itoa(time.Now().Year())
+	linetime, err := time.ParseInLocation(longForm, reList[1]+" "+stringYear, time.Local)
+	if err != nil {
+		return true
+	}
+	glog.Infof("time.Since is %v comparing \n%v\n%v for line %v", time.Since(linetime), time.Now(), linetime, line)
+	return (time.Since(linetime) < (time.Second))
+
 }
 
 // uses regex to see if line is the start of a kernel oom log
@@ -108,11 +128,17 @@ func (self *OomParser) analyzeLines(ioreader *bufio.Reader, outStream chan *OomI
 	var line string
 	var err error
 	for true {
-		for line, err = ioreader.ReadString('\n'); err != nil && err == io.EOF; {
+		line, err = ioreader.ReadString('\n')
+		if err == io.EOF {
 			time.Sleep(100 * time.Millisecond)
 		}
+
 		in_oom_kernel_log := checkIfStartOfOomMessages(line)
+
 		if in_oom_kernel_log {
+			if isLineTimeClose(line) {
+				time.Sleep(time.Second)
+			}
 			oomCurrentInstance := &OomInstance{
 				ContainerName: "/",
 			}
@@ -132,6 +158,7 @@ func (self *OomParser) analyzeLines(ioreader *bufio.Reader, outStream chan *OomI
 			outStream <- oomCurrentInstance
 		}
 	}
+	glog.Errorf("exiting analyzeLines with error %v", err)
 }
 
 // looks for system files that contain kernel messages and if one is found, sets

@@ -153,6 +153,7 @@ func streamResults(results chan *events.Event, w http.ResponseWriter, r *http.Re
 			glog.Infof("Client stopped listening")
 			return nil
 		case ev := <-results:
+			glog.Infof("END OBJECTIVE MADE: got event in streamResults %v", ev)
 			err := enc.Encode(ev)
 			if err != nil {
 				glog.Errorf("error encoding message %+v for result stream: %v", ev, err)

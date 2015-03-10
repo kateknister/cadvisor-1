@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang/glog"
 )
 
 // EventManager is implemented by Events. It provides two ways to monitor
@@ -240,6 +242,7 @@ func (self *events) WatchEvents(outChannel chan *Event, request *Request) error 
 			"for a call to watch, request.StartTime and request.EndTime must be uninitialized")
 	}
 	newWatcher := newWatch(request, outChannel)
+	glog.Infof("The newWatch's request is %v", newWatcher.request)
 	self.watcherLock.Lock()
 	defer self.watcherLock.Unlock()
 	self.watchers = append(self.watchers, newWatcher)
@@ -270,9 +273,11 @@ func (self *events) findValidWatchers(e *Event) []*watch {
 // eventlist. It also feeds the event to a set of watch channels
 // held by the manager if it satisfies the request keys of the channels
 func (self *events) AddEvent(e *Event) error {
+	glog.Infof("Adding an event in events/handler.go %v", e)
 	self.updateEventList(e)
 	watchesToSend := self.findValidWatchers(e)
 	for _, watchObject := range watchesToSend {
+		glog.Infof("One valid watcher's request type is %v", watchObject.request)
 		watchObject.channel <- e
 	}
 	return nil

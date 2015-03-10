@@ -258,6 +258,7 @@ func (self *version1_3) HandleRequest(requestType string, request []string, m ma
 	switch requestType {
 	case eventsApi:
 		query, eventsFromAllTime, err := getEventRequest(r)
+		glog.Infof("The query in HandleRequest is %v", query)
 		if err != nil {
 			return err
 		}
